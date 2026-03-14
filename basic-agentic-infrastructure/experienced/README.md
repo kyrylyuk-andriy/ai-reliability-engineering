@@ -2,6 +2,26 @@
 
 This module builds on the [basic setup](../basic/README.md) by deploying AgentGateway and kagent in a Kubernetes cluster with proper secrets management.
 
+### AgentGateway vs kagent
+
+**AgentGateway** = proxy/router for AI traffic
+- Routes requests to LLM providers (Anthropic, OpenAI, Gemini)
+- Handles auth, load balancing, failover, observability
+- Think of it like an ingress controller but for AI APIs
+
+**kagent** = framework for building and running AI agents on K8s
+- Creates autonomous agents that can use tools (kubectl, Helm, MCP, HTTP)
+- Provides a UI/CLI to chat with agents
+- Agents can perform tasks like managing K8s resources, debugging pods, etc.
+- Think of it like an AI operations team running in your cluster
+
+**They're complementary:**
+- kagent creates agents that need to call LLMs
+- AgentGateway sits in front of the LLM providers, handling routing and auth
+- `kagent → AgentGateway → Anthropic/OpenAI/Gemini`
+
+In our setup, kagent's agents talk to LLMs through AgentGateway rather than directly, giving you centralized control over all AI traffic.
+
 ---
 
 ## Plan
