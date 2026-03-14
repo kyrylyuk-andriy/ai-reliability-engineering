@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - backends:
+      - ai:
+          name: anthropic
+          provider:
+            anthropic:
+              model: claude-haiku-4-5-20251001
+          policies:
+            backendAuth:
+              key: "$ANTHROPIC_API_KEY"
+      policies:
+        ai:
+          routes:
+            /v1/messages: messages
+            /v1/chat/completions: completions
+            /v1/models: passthrough
+            "*": passthrough
+- port: 3001
+  listeners:
+  - routes:
+    - backends:
+      - ai:
+          name: gemini
+          provider:
+            gemini:
+              model: gemini-2.0-flash
+          policies:
+            backendAuth:
+              key: "$GEMINI_API_KEY"
+      policies:
+        ai:
+          routes:
+            /v1/chat/completions: completions
+            /v1/models: passthrough
+            "*": passthrough
