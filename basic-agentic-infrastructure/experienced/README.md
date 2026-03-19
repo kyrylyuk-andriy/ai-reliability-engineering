@@ -374,7 +374,44 @@ Open http://localhost:8082
 
 ## Cleanup
 
+Stop any running port-forwards and kagent dashboard with `Ctrl+C`, then:
+
+### 1. Uninstall kagent
+
 ```bash
 kagent uninstall
+```
+
+### 2. Uninstall AgentGateway
+
+```bash
 helm uninstall agentgateway agentgateway-crds -n agentgateway-system
 ```
+
+If the Helm release is already gone but the proxy pod remains, delete the Gateway resource:
+
+```bash
+kubectl delete gateway agentgateway-proxy -n agentgateway-system
+```
+
+### 3. Remove Gateway API CRDs
+
+```bash
+kubectl delete -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml
+```
+
+### 4. Delete namespaces
+
+```bash
+kubectl delete namespace agentgateway-system kagent
+```
+
+### 5. Verify cleanup
+
+```bash
+kubectl get namespaces
+kubectl get crds | grep -E "agentgateway|kagent|gateway.networking"
+kubectl get pods -A | grep -E "agentgateway|kagent"
+```
+
+All three should return no agentgateway/kagent results. Only default kind namespaces should remain.
