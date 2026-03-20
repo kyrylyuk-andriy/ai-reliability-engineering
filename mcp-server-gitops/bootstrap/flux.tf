@@ -47,7 +47,7 @@ resource "null_resource" "gateway_api_crds" {
   depends_on = [kind_cluster.this]
 
   provisioner "local-exec" {
-    command = "kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml"
+    command = "kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/experimental-install.yaml"
   }
 }
 
