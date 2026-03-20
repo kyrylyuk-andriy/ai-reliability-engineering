@@ -7,7 +7,7 @@ variable "cluster_name" {
 variable "git_repo_url" {
   description = "Git repository URL for Flux to sync from"
   type        = string
-  default     = "https://github.com/andriy-kyrylyuk/ai-reliability-engineering"
+  default     = "https://github.com/kyrylyuk-andriy/ai-reliability-engineering"
 }
 
 variable "git_repo_branch" {
