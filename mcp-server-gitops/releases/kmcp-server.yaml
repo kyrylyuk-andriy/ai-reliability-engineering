@@ -37,6 +37,7 @@ metadata:
 spec:
   deployment:
     image: ghcr.io/kyrylyuk-andriy/k8s-health-checker:latest
+    serviceAccountName: k8s-health-checker
     resources:
       requests:
         cpu: 50m
@@ -45,9 +46,6 @@ spec:
         cpu: 200m
         memory: 128Mi
   transportType: stdio
-  podTemplateSpec:
-    spec:
-      serviceAccountName: k8s-health-checker
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: Agent
