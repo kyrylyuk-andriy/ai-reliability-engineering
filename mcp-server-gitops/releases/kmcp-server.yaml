@@ -37,6 +37,7 @@ metadata:
 spec:
   deployment:
     image: ghcr.io/kyrylyuk-andriy/k8s-health-checker:latest
+    cmd: /k8s-health-checker
     serviceAccountName: k8s-health-checker
     resources:
       requests:
