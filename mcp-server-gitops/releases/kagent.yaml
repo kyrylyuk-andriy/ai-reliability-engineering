@@ -67,7 +67,6 @@ spec:
     providers:
       default: anthropic
       anthropic:
-        apiKey: ANTHROPIC_API_KEY
         secretName: kagent-anthropic
         secretKey: ANTHROPIC_API_KEY
 ---
