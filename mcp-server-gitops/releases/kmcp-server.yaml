@@ -73,3 +73,4 @@ spec:
             - get_node_status
             - get_deployment_status
             - get_events
+            - cluster_dashboard
