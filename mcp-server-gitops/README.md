@@ -144,6 +144,7 @@ A custom MCP tool server written in Go that provides Kubernetes health check too
 | `get_node_status` | List cluster nodes with conditions and versions |
 | `get_deployment_status` | List deployments with ready/desired replica counts |
 | `get_events` | Get recent warning events from the cluster |
+| `cluster_dashboard` | Interactive HTML dashboard (MCP App) showing cluster health |
 
 ### SDLC
 
@@ -154,6 +155,51 @@ The server follows a full software development lifecycle:
 - **Container image** — Multi-stage Dockerfile with distroless base, pushed to GHCR
 - **GitOps deployment** — `releases/kmcp-server.yaml` deploys MCPServer CR, Agent CR, RBAC via Flux
 - **CI/CD** — GitHub Actions workflow: lint, test, build & push to `ghcr.io`
+
+### MCP App: Cluster Dashboard
+
+The `cluster_dashboard` tool implements [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) — an MCP extension that returns interactive HTML UIs rendered inside the conversation as sandboxed iframes.
+
+**How it works:**
+1. Tool declares `ui://k8s-dashboard` resource containing a self-contained HTML dashboard
+2. MCP Apps-compatible clients (Claude Desktop, VS Code Copilot) render the HTML in a sandboxed iframe
+3. The dashboard calls existing tools (`get_pod_status`, `get_node_status`, etc.) via postMessage
+4. Results display as styled tables with status badges, namespace selector, and refresh button
+
+**Dashboard features:**
+- Nodes overview with Ready/NotReady status
+- Pods table with namespace selector (kagent, flux-system, kube-system, etc.)
+- Deployments with ready/desired replica counts
+- Warning events panel
+- Summary with health percentages
+
+**Testing with MCP Inspector:**
+
+```bash
+# Port-forward the KMCP server
+kubectl port-forward -n kagent pod/<k8s-health-checker-pod> 3000:3000
+
+# Launch Inspector, connect via Streamable HTTP to http://localhost:3000/mcp
+npx @modelcontextprotocol/inspector@0.21.1
+```
+
+**Testing with Claude Desktop:**
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "k8s-health-checker": {
+      "command": "<path-to-repo>/mcp-server-gitops/kmcp-server/bin/k8s-health-checker"
+    }
+  }
+}
+```
+
+Build locally with `cd kmcp-server && go build -o bin/k8s-health-checker .`, restart Claude Desktop, and ask "Show me the cluster dashboard".
+
+![MCP Apps Dashboard](docs/images/mcp-dashboard.png)
 
 ### How it works
 
@@ -194,11 +240,15 @@ mcp-server-gitops/
 │   ├── variables.tf
 │   ├── cluster.tf
 │   └── flux.tf
+├── docs/                    # Research & screenshots
+│   ├── mcp-research.md      # MCP Sampling/Elicitation/Apps research
+│   └── images/
 ├── kmcp-server/             # Custom KMCP server (Go)
 │   ├── main.go
 │   ├── tools/
-│   │   ├── k8s.go
-│   │   └── k8s_test.go
+│   │   ├── k8s.go           # K8s health check tools
+│   │   ├── k8s_test.go
+│   │   └── dashboard.go     # MCP App: HTML dashboard
 │   ├── go.mod / go.sum
 │   ├── Dockerfile
 │   └── Makefile
