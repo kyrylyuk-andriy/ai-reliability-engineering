@@ -85,6 +85,8 @@ spec:
           env:
             - name: AGENT_REGISTRY_DATABASE_URL
               value: "postgres://agentregistry:agentregistry@agentregistry-postgres.agentregistry:5432/agentregistry?sslmode=disable"
+            - name: AGENT_REGISTRY_JWT_PRIVATE_KEY
+              value: "0000000000000000000000000000000000000000000000000000000000000000"
             - name: VECTOR_ENABLED
               value: "true"
           livenessProbe:
