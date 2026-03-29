@@ -1,0 +1,221 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcp-governance
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp-governance-controller
+  namespace: mcp-governance
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mcp-governance-controller
+rules:
+  - apiGroups: ["agentgateway.dev"]
+    resources: [agentgatewaybackends, agentgatewayparameters, agentgatewaypolicies]
+    verbs: [get, list, watch]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: [gateways, httproutes, gatewayclasses]
+    verbs: [get, list, watch]
+  - apiGroups: ["kagent.dev"]
+    resources: [agents, mcpservers, remotemcpservers]
+    verbs: [get, list, watch]
+  - apiGroups: ["agentregistry.dev"]
+    resources: [mcpservercatalogs]
+    verbs: [get, list, watch]
+  - apiGroups: ["governance.mcp.io"]
+    resources: [mcpgovernancepolicies, mcpgovernancepolicies/status, governanceevaluations, governanceevaluations/status]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [""]
+    resources: [services, namespaces, pods]
+    verbs: [get, list, watch]
+  - apiGroups: ["apps"]
+    resources: [deployments, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: ["networking.k8s.io"]
+    resources: [networkpolicies]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mcp-governance-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mcp-governance-controller
+subjects:
+  - kind: ServiceAccount
+    name: mcp-governance-controller
+    namespace: mcp-governance
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-governance-controller
+  namespace: mcp-governance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-governance
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp-governance
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: mcp-governance-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: ghcr.io/kyrylyuk-andriy/mcp-governance-controller:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: api
+              containerPort: 8090
+          env:
+            - name: PORT
+              value: "8090"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: api
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-governance-controller
+  namespace: mcp-governance
+spec:
+  selector:
+    app.kubernetes.io/name: mcp-governance
+    app.kubernetes.io/component: controller
+  ports:
+    - name: api
+      port: 8090
+      targetPort: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-governance-dashboard
+  namespace: mcp-governance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-governance
+      app.kubernetes.io/component: dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp-governance
+        app.kubernetes.io/component: dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: ghcr.io/kyrylyuk-andriy/mcp-governance-dashboard:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: CONTROLLER_API_URL
+              value: "http://mcp-governance-controller.mcp-governance.svc.cluster.local:8090"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-governance-dashboard
+  namespace: mcp-governance
+spec:
+  selector:
+    app.kubernetes.io/name: mcp-governance
+    app.kubernetes.io/component: dashboard
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: governance.mcp.io/v1alpha1
+kind: MCPGovernancePolicy
+metadata:
+  name: enterprise-mcp-policy
+spec:
+  requireAgentGateway: true
+  requireCORS: true
+  requireJWTAuth: true
+  requireRBAC: true
+  requirePromptGuard: true
+  requireTLS: true
+  requireRateLimit: true
+  scanInterval: "5m"
+  maxToolsWarning: 10
+  maxToolsCritical: 15
+  scoringWeights:
+    agentGatewayIntegration: 25
+    authentication: 20
+    authorization: 15
+    corsPolicy: 10
+    tlsEncryption: 10
+    promptGuard: 5
+    rateLimit: 5
+    toolScope: 10
+  excludeNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - local-path-storage
+---
+apiVersion: governance.mcp.io/v1alpha1
+kind: GovernanceEvaluation
+metadata:
+  name: enterprise-evaluation
+spec:
+  policyRef: enterprise-mcp-policy
+  evaluationScope: cluster

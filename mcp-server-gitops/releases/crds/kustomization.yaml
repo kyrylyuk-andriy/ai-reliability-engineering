@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - agentgateway-crds.yaml
   - kagent-crds.yaml
+  - mcpg-crds.yaml

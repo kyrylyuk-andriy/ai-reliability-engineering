@@ -5,3 +5,4 @@ resources:
   - agentgateway.yaml
   - kagent.yaml
   - kmcp-server.yaml
+  - mcpg.yaml
