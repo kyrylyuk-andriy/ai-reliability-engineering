@@ -26,7 +26,7 @@ spec:
             - containerPort: 5432
           env:
             - name: POSTGRES_DB
-              value: agentregistry
+              value: agent-registry
             - name: POSTGRES_USER
               value: agentregistry
             - name: POSTGRES_PASSWORD
@@ -83,8 +83,8 @@ spec:
           ports:
             - containerPort: 8080
           env:
-            - name: DATABASE_URL
-              value: "postgres://agentregistry:agentregistry@agentregistry-postgres.agentregistry:5432/agentregistry?sslmode=disable"
+            - name: AGENT_REGISTRY_DATABASE_URL
+              value: "postgres://agentregistry:agentregistry@agentregistry-postgres.agentregistry:5432/agent-registry?sslmode=disable"
             - name: VECTOR_ENABLED
               value: "true"
           livenessProbe:
