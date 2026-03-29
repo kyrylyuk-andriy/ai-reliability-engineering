@@ -74,3 +74,16 @@ spec:
             - get_deployment_status
             - get_events
             - cluster_dashboard
+  a2aConfig:
+    skills:
+      - id: cluster-health
+        name: Cluster Health Check
+        description: Inspect Kubernetes cluster health — pods, nodes, deployments, and warning events
+        inputModes: [text]
+        outputModes: [text]
+        tags: [k8s, health, monitoring, sre]
+        examples:
+          - "What pods are running in the kagent namespace?"
+          - "Show me the cluster node status"
+          - "Are there any warning events?"
+          - "Check deployment status in kube-system"
