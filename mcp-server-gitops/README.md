@@ -227,6 +227,159 @@ Open kagent UI → select **k8s-health-agent** → ask "What pods are running in
 
 ---
 
+## A2A Agents (Agent-to-Agent Protocol)
+
+Three standalone A2A agents built with the official [a2a-go SDK](https://github.com/a2aproject/a2a-go) that communicate via the [A2A protocol](https://a2a-protocol.org).
+
+### Architecture
+
+```
+User → A2A Team Coordinator (port 9092)
+         ├── K8s Health Agent (custom, port 9090)     — cluster health via client-go
+         ├── Helm Agent (kagent, port 8083)            — Helm releases via kagent A2A
+         └── K8s Agent (kagent, port 8083)             — K8s diagnostics via kagent A2A
+```
+
+### Agents
+
+| Agent | Port | Description |
+|-------|------|-------------|
+| `a2a-agent` | 9090 | Standalone K8s health checker with 5 skills (pods, nodes, deployments, events, summary) |
+| `a2a-sre-coordinator` | 9091 | SRE agent that delegates to the health agent and compiles reports |
+| `a2a-team` | 9092 | Team coordinator — orchestrates custom + kagent agents via A2A |
+
+### Build & Run
+
+```bash
+# Build all agents
+cd a2a-agent && go build -o bin/a2a-agent .
+cd ../a2a-sre-coordinator && go build -o bin/sre-coordinator .
+cd ../a2a-team && go build -o bin/a2a-team .
+```
+
+#### Run standalone health agent
+```bash
+cd a2a-agent && PORT=9090 ./bin/a2a-agent
+# Agent Card: http://localhost:9090/.well-known/agent-card.json
+```
+
+#### Run two-agent communication (SRE → Health)
+```bash
+cd a2a-agent && PORT=9090 ./bin/a2a-agent &
+cd a2a-sre-coordinator && ./bin/sre-coordinator &
+# SRE Coordinator at port 9091, delegates to Health Agent at 9090
+```
+
+#### Run full team (custom + kagent agents)
+```bash
+# Start custom health agent
+cd a2a-agent && PORT=9090 ./bin/a2a-agent &
+
+# Port-forward kagent controller for A2A access
+kubectl port-forward svc/kagent-controller -n kagent 8083:8083 &
+
+# Start team coordinator
+cd a2a-team && ./bin/a2a-team &
+```
+
+### Test
+
+```bash
+# Get Agent Card
+curl -s http://localhost:9090/.well-known/agent-card.json | jq .name
+
+# Send A2A task to health agent
+curl -s -X POST http://localhost:9090/ -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"SendMessage","params":{"message":{"messageId":"test-1","role":"user","parts":[{"text":"Show node status"}]}},"id":1}' | jq .
+
+# Send A2A task to team coordinator (queries all 3 agents)
+curl -s -X POST http://localhost:9092/ -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"SendMessage","params":{"message":{"messageId":"team-1","role":"user","parts":[{"text":"Run a full health check"}]}},"id":1}' | jq .
+```
+
+### References
+
+- [A2A Protocol Specification](https://a2a-protocol.org/latest/specification/)
+- [Official Go SDK](https://github.com/a2aproject/a2a-go)
+- [kagent A2A Support](https://kagent.dev/docs/kagent/examples/a2a-agents)
+- [A2A Research Document](docs/a2a-research.md)
+
+---
+
+## MCP Security Governance (MCPG)
+
+[MCPG](https://github.com/techwithhuz/mcp-security-governance) is a Kubernetes-native governance platform that discovers and scores MCP infrastructure security.
+
+### What it does
+
+- Discovers all MCP-related resources (AgentGateway, kagent agents, MCP servers, Gateway API)
+- Scores them across 9 security categories (auth, TLS, CORS, rate limiting, OWASP hardening)
+- Provides a real-time Next.js dashboard
+- Uses CRDs: `MCPGovernancePolicy`, `GovernanceEvaluation`
+
+### Deployed via GitOps
+
+MCPG is deployed automatically by Flux from `releases/mcpg.yaml` with images from GHCR:
+- `ghcr.io/kyrylyuk-andriy/mcp-governance-controller:latest`
+- `ghcr.io/kyrylyuk-andriy/mcp-governance-dashboard:latest`
+
+### Access the dashboard
+
+```bash
+kubectl port-forward svc/mcp-governance-dashboard -n mcp-governance 3000:3000
+# Open http://localhost:3000
+```
+
+### Check governance score
+
+```bash
+kubectl port-forward svc/mcp-governance-controller -n mcp-governance 8090:8090
+curl -s http://localhost:8090/api/health | jq .
+```
+
+---
+
+## Agentregistry (AI Resource Inventory)
+
+[Agentregistry](https://github.com/agentregistry-dev/agentregistry) provides a centralized registry and UI for discovering AI resources.
+
+### Deployed via GitOps
+
+Agentregistry is deployed by Flux from `releases/agentregistry.yaml`:
+- PostgreSQL (pgvector) StatefulSet
+- Agentregistry server (v0.3.2)
+
+### Access the UI
+
+```bash
+kubectl port-forward svc/agentregistry-server -n agentregistry 12121:8080
+# Open http://localhost:12121
+```
+
+### List AI resources in the cluster (kubectl)
+
+```bash
+kubectl get mcpservers -A                    # MCP Servers
+kubectl get remotemcpservers -A              # Remote MCP Servers
+kubectl get agents -A                        # AI Agents
+kubectl get modelconfigs -A                  # Model Configurations
+kubectl get gateways -A                      # Gateways
+kubectl get httproutes -A                    # HTTP Routes
+kubectl get mcpgovernancepolicies -A         # Governance Policies
+kubectl get governanceevaluations -A         # Governance Evaluations
+```
+
+---
+
+## Research Documents
+
+| Document | Topic |
+|----------|-------|
+| [MCP Research](docs/mcp-research.md) | MCP Sampling, Elicitation, Apps — use cases and technical details |
+| [A2A Research](docs/a2a-research.md) | A2A Protocol — Agent Cards, Tasks, Teams, comparison with MCP |
+
+---
+
 ## Project Structure
 
 ```
@@ -242,8 +395,9 @@ mcp-server-gitops/
 │   └── flux.tf
 ├── docs/                    # Research & screenshots
 │   ├── mcp-research.md      # MCP Sampling/Elicitation/Apps research
+│   ├── a2a-research.md      # A2A Protocol research
 │   └── images/
-├── kmcp-server/             # Custom KMCP server (Go)
+├── kmcp-server/             # Custom KMCP server (Go, MCP protocol)
 │   ├── main.go
 │   ├── tools/
 │   │   ├── k8s.go           # K8s health check tools
@@ -252,15 +406,27 @@ mcp-server-gitops/
 │   ├── go.mod / go.sum
 │   ├── Dockerfile
 │   └── Makefile
+├── a2a-agent/               # Standalone A2A health agent (Go)
+│   ├── main.go
+│   └── go.mod / go.sum
+├── a2a-sre-coordinator/     # A2A SRE coordinator (Go)
+│   ├── main.go
+│   └── go.mod / go.sum
+├── a2a-team/                # A2A Team coordinator (Go, custom + kagent)
+│   ├── main.go
+│   └── go.mod / go.sum
 └── releases/                # Flux syncs this directory
     ├── kustomization.yaml
     ├── agentgateway.yaml    # Namespace + HelmRelease + Gateway
     ├── kagent.yaml          # Namespace + HelmRelease + HTTPRoute + ModelConfig
-    ├── kmcp-server.yaml     # MCPServer + Agent + RBAC
+    ├── kmcp-server.yaml     # MCPServer + Agent + RBAC + A2A config
+    ├── mcpg.yaml            # MCP Security Governance (controller + dashboard)
+    ├── agentregistry.yaml   # AI Resource Inventory (server + postgres)
     └── crds/
         ├── kustomization.yaml
         ├── agentgateway-crds.yaml
-        └── kagent-crds.yaml
+        ├── kagent-crds.yaml
+        └── mcpg-crds.yaml
 ```
 
 ---

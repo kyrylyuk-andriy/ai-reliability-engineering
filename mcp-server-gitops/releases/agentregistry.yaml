@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentregistry
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agentregistry-postgres
+  namespace: agentregistry
+spec:
+  serviceName: agentregistry-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentregistry-postgres
+  template:
+    metadata:
+      labels:
+        app: agentregistry-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: agentregistry
+            - name: POSTGRES_USER
+              value: agentregistry
+            - name: POSTGRES_PASSWORD
+              value: agentregistry
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentregistry-postgres
+  namespace: agentregistry
+spec:
+  selector:
+    app: agentregistry-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentregistry-server
+  namespace: agentregistry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentregistry-server
+  template:
+    metadata:
+      labels:
+        app: agentregistry-server
+    spec:
+      containers:
+        - name: server
+          image: ghcr.io/agentregistry-dev/agentregistry/server:v0.3.2
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              value: "postgres://agentregistry:agentregistry@agentregistry-postgres.agentregistry:5432/agentregistry?sslmode=disable"
+            - name: VECTOR_ENABLED
+              value: "true"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentregistry-server
+  namespace: agentregistry
+spec:
+  selector:
+    app: agentregistry-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
