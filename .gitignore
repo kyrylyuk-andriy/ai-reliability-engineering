@@ -3,3 +3,7 @@
 *.tfstate.backup
 .terraform/
 .terraform.lock.hcl
+
+# Go binaries
+bin/
+*.exe
