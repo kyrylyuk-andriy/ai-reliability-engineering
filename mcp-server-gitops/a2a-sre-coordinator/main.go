@@ -4,33 +4,53 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
-	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
-// sreProcessor is the SRE Coordinator that delegates to downstream agents via A2A.
-type sreProcessor struct {
+type sreExecutor struct {
 	healthAgentURL string
 }
 
-func (p *sreProcessor) ProcessMessage(
-	ctx context.Context,
-	message protocol.Message,
-	options taskmanager.ProcessOptions,
-	handle taskmanager.TaskHandler,
-) (*taskmanager.MessageProcessingResult, error) {
-	text := extractText(message)
-	log.Printf("[SRE Coordinator] Received task: %s", text)
+func (e *sreExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	return func(yield func(a2a.Event, error) bool) {
+		if execCtx.StoredTask == nil {
+			if !yield(a2a.NewSubmittedTask(execCtx, execCtx.Message), nil) {
+				return
+			}
+		}
+		if !yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, nil), nil) {
+			return
+		}
 
-	var results []string
+		text := extractText(execCtx.Message)
+		log.Printf("[SRE Coordinator] Received task: %s", text)
+
+		report := e.runChecks(ctx, text)
+
+		event := a2a.NewArtifactEvent(execCtx, a2a.NewTextPart(report))
+		if !yield(event, nil) {
+			return
+		}
+		yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateCompleted, nil), nil)
+	}
+}
+
+func (e *sreExecutor) Cancel(_ context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	return func(yield func(a2a.Event, error) bool) {
+		yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateCanceled, nil), nil)
+	}
+}
+
+func (e *sreExecutor) runChecks(ctx context.Context, text string) string {
 	var checks []string
 
 	switch {
@@ -46,12 +66,6 @@ func (p *sreProcessor) ProcessMessage(
 			"Show me the cluster node status",
 			"Show pods in kube-system namespace",
 		}
-	case containsAny(text, "pod", "pods"):
-		checks = []string{text}
-	case containsAny(text, "node", "nodes"):
-		checks = []string{text}
-	case containsAny(text, "deploy", "deployment"):
-		checks = []string{text}
 	default:
 		checks = []string{
 			"Show me the cluster node status",
@@ -59,73 +73,49 @@ func (p *sreProcessor) ProcessMessage(
 		}
 	}
 
-	// Create A2A client to communicate with the health agent
-	a2aClient, err := client.NewA2AClient(p.healthAgentURL)
+	// Discover the agent card
+	agentCard, err := fetchAgentCard(e.healthAgentURL)
 	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to create A2A client: %v", err)), nil
-	}
-
-	// Discover the agent card via HTTP GET
-	agentCard, err := fetchAgentCard(p.healthAgentURL)
-	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to discover Health Agent: %v", err)), nil
+		return fmt.Sprintf("Error: Failed to discover Health Agent: %v", err)
 	}
 	log.Printf("[SRE Coordinator] Connected to agent: %s (v%s) with %d skills",
 		agentCard.Name, agentCard.Version, len(agentCard.Skills))
 
-	// Send each check as an A2A task
+	// Create A2A client from the agent card
+	a2aClient, err := a2aclient.NewFromCard(ctx, agentCard)
+	if err != nil {
+		return fmt.Sprintf("Error: Failed to create A2A client: %v", err)
+	}
+
+	var results []string
 	for i, check := range checks {
 		log.Printf("[SRE Coordinator] Sending check %d/%d: %s", i+1, len(checks), check)
 
-		msg := protocol.NewMessage(
-			protocol.MessageRoleUser,
-			[]protocol.Part{protocol.NewTextPart(check)},
-		)
-		params := protocol.SendMessageParams{
+		msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(check))
+		resp, err := a2aClient.SendMessage(ctx, &a2a.SendMessageRequest{
 			Message: msg,
-		}
-
-		result, err := a2aClient.SendMessage(ctx, params)
+		})
 		if err != nil {
 			results = append(results, fmt.Sprintf("## Check %d: FAILED\n%v", i+1, err))
 			continue
 		}
 
-		// Extract text from the result
-		if result.Result != nil {
-			// Marshal/unmarshal to extract text from the result
-			raw, _ := json.Marshal(result.Result)
-			var parsed struct {
-				Parts []struct {
-					Kind string `json:"kind"`
-					Text string `json:"text"`
-				} `json:"parts"`
-			}
-			json.Unmarshal(raw, &parsed)
-			for _, part := range parsed.Parts {
-				if part.Kind == "text" && part.Text != "" {
-					results = append(results, fmt.Sprintf("## Check %d: %s\n%s", i+1, check, part.Text))
-				}
-			}
+		// Extract text from the response
+		resultText := extractResultText(resp)
+		if resultText != "" {
+			results = append(results, fmt.Sprintf("## Check %d: %s\n%s", i+1, check, resultText))
+		} else {
+			results = append(results, fmt.Sprintf("## Check %d: %s\n(no text response)", i+1, check))
 		}
 	}
 
-	// Compile the SRE report
 	timestamp := time.Now().Format("2006-01-02 15:04:05 MST")
-	report := fmt.Sprintf("# SRE Health Report\nTimestamp: %s\nHealth Agent: %s (v%s)\nChecks performed: %d\n\n%s\n\n---\nReport generated by SRE Coordinator Agent",
+	return fmt.Sprintf("# SRE Health Report\nTimestamp: %s\nHealth Agent: %s (v%s)\nChecks performed: %d\n\n%s\n\n---\nReport generated by SRE Coordinator Agent",
 		timestamp, agentCard.Name, agentCard.Version, len(checks), strings.Join(results, "\n\n"))
-
-	responseMessage := protocol.NewMessage(
-		protocol.MessageRoleAgent,
-		[]protocol.Part{protocol.NewTextPart(report)},
-	)
-	return &taskmanager.MessageProcessingResult{
-		Result: &responseMessage,
-	}, nil
 }
 
-func fetchAgentCard(baseURL string) (*server.AgentCard, error) {
-	cardURL := strings.TrimSuffix(baseURL, "/") + "/.well-known/agent.json"
+func fetchAgentCard(baseURL string) (*a2a.AgentCard, error) {
+	cardURL := strings.TrimSuffix(baseURL, "/") + "/.well-known/agent-card.json"
 	resp, err := http.Get(cardURL)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP GET failed: %w", err)
@@ -134,25 +124,51 @@ func fetchAgentCard(baseURL string) (*server.AgentCard, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
-	var card server.AgentCard
+	var card a2a.AgentCard
 	if err := json.NewDecoder(resp.Body).Decode(&card); err != nil {
 		return nil, fmt.Errorf("decode failed: %w", err)
 	}
 	return &card, nil
 }
 
-func errorResult(msg string) *taskmanager.MessageProcessingResult {
-	m := protocol.NewMessage(
-		protocol.MessageRoleAgent,
-		[]protocol.Part{protocol.NewTextPart("Error: " + msg)},
-	)
-	return &taskmanager.MessageProcessingResult{Result: &m}
+func extractResultText(resp a2a.SendMessageResult) string {
+	raw, _ := json.Marshal(resp)
+	var parsed struct {
+		Artifacts []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"artifacts"`
+		Parts []struct {
+			Text string `json:"text"`
+		} `json:"parts"`
+	}
+	json.Unmarshal(raw, &parsed)
+
+	// Check artifacts (Task response)
+	for _, a := range parsed.Artifacts {
+		for _, p := range a.Parts {
+			if p.Text != "" {
+				return p.Text
+			}
+		}
+	}
+	// Check message parts
+	for _, p := range parsed.Parts {
+		if p.Text != "" {
+			return p.Text
+		}
+	}
+	return ""
 }
 
-func extractText(msg protocol.Message) string {
+func extractText(msg *a2a.Message) string {
+	if msg == nil {
+		return ""
+	}
 	for _, part := range msg.Parts {
-		if tp, ok := part.(protocol.TextPart); ok {
-			return strings.ToLower(tp.Text)
+		if t := part.Text(); t != "" {
+			return strings.ToLower(t)
 		}
 	}
 	return ""
@@ -167,9 +183,6 @@ func containsAny(text string, words ...string) bool {
 	return false
 }
 
-func stringPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool       { return &b }
-
 func main() {
 	port := ":9091"
 	if p := os.Getenv("PORT"); p != "" {
@@ -181,57 +194,37 @@ func main() {
 		healthAgentURL = u
 	}
 
-	processor := &sreProcessor{healthAgentURL: healthAgentURL}
+	executor := &sreExecutor{healthAgentURL: healthAgentURL}
+	handler := a2asrv.NewHandler(executor)
+	jsonrpcHandler := a2asrv.NewJSONRPCHandler(handler)
 
-	providerURL := "https://github.com/kyrylyuk-andriy/ai-reliability-engineering"
-
-	agentCard := server.AgentCard{
+	card := &a2a.AgentCard{
 		Name:        "SRE Coordinator Agent",
-		Description: "Orchestrates SRE tasks by delegating to specialized agents via A2A protocol. Performs cluster health assessments, incident triage, and generates SRE reports.",
-		URL:         fmt.Sprintf("http://localhost%s/", port),
+		Description: "Orchestrates SRE tasks by delegating to specialized agents via A2A protocol.",
 		Version:     "0.1.0",
-		Provider: &server.AgentProvider{
-			Organization: "AI Reliability Engineering",
-			URL:          &providerURL,
+		Provider: &a2a.AgentProvider{
+			Org: "AI Reliability Engineering",
+			URL: "https://github.com/kyrylyuk-andriy/ai-reliability-engineering",
 		},
-		Capabilities: server.AgentCapabilities{
-			Streaming:         boolPtr(false),
-			PushNotifications: boolPtr(false),
+		DefaultInputModes:  []string{"text/plain"},
+		DefaultOutputModes: []string{"text/plain"},
+		Skills: []a2a.AgentSkill{
+			{ID: "health-assessment", Name: "Cluster Health Assessment", Description: "Comprehensive health check via K8s Health Agent"},
+			{ID: "incident-triage", Name: "Incident Triage", Description: "Initial incident triage — checks events, nodes, and system pods"},
 		},
-		DefaultInputModes:  []string{protocol.KindText},
-		DefaultOutputModes: []string{protocol.KindText},
-		Skills: []server.AgentSkill{
-			{
-				ID:          "health-assessment",
-				Name:        "Cluster Health Assessment",
-				Description: stringPtr("Comprehensive cluster health check by delegating to the K8s Health Agent"),
-				InputModes:  []string{protocol.KindText},
-				OutputModes: []string{protocol.KindText},
-			},
-			{
-				ID:          "incident-triage",
-				Name:        "Incident Triage",
-				Description: stringPtr("Initial incident triage — checks events, nodes, and system pods"),
-				InputModes:  []string{protocol.KindText},
-				OutputModes: []string{protocol.KindText},
-			},
+		SupportedInterfaces: []*a2a.AgentInterface{
+			a2a.NewAgentInterface(fmt.Sprintf("http://localhost%s", port), a2a.TransportProtocolJSONRPC),
 		},
 	}
 
-	taskManager, err := taskmanager.NewMemoryTaskManager(processor)
-	if err != nil {
-		log.Fatalf("Failed to create task manager: %v", err)
-	}
+	mux := http.NewServeMux()
+	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
+	mux.Handle("/", jsonrpcHandler)
 
-	srv, err := server.NewA2AServer(agentCard, taskManager)
-	if err != nil {
-		log.Fatalf("Failed to create A2A server: %v", err)
-	}
-
-	log.Printf("SRE Coordinator Agent started on %s", port)
-	log.Printf("Agent Card: http://localhost%s/.well-known/agent.json", port)
+	log.Printf("SRE Coordinator Agent started on %s (official a2a-go SDK)", port)
+	log.Printf("Agent Card: http://localhost%s%s", port, a2asrv.WellKnownAgentCardPath)
 	log.Printf("Delegating to Health Agent at: %s", healthAgentURL)
-	if err := srv.Start(port); err != nil {
+	if err := http.ListenAndServe(port, mux); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

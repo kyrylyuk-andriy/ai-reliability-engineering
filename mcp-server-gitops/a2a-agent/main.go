@@ -3,24 +3,25 @@ package main
 import (
 	"context"
 	"fmt"
+	"iter"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
-	"trpc.group/trpc-go/trpc-a2a-go/taskmanager"
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-type k8sHealthProcessor struct {
+type k8sExecutor struct {
 	client kubernetes.Interface
 }
 
-func newK8sHealthProcessor() (*k8sHealthProcessor, error) {
+func newK8sExecutor() (*k8sExecutor, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		config, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
@@ -32,47 +33,59 @@ func newK8sHealthProcessor() (*k8sHealthProcessor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot create k8s client: %w", err)
 	}
-	return &k8sHealthProcessor{client: client}, nil
+	return &k8sExecutor{client: client}, nil
 }
 
-func (p *k8sHealthProcessor) ProcessMessage(
-	ctx context.Context,
-	message protocol.Message,
-	options taskmanager.ProcessOptions,
-	handle taskmanager.TaskHandler,
-) (*taskmanager.MessageProcessingResult, error) {
-	text := extractText(message)
-	var result string
-	var err error
+func (e *k8sExecutor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	return func(yield func(a2a.Event, error) bool) {
+		if execCtx.StoredTask == nil {
+			if !yield(a2a.NewSubmittedTask(execCtx, execCtx.Message), nil) {
+				return
+			}
+		}
+		if !yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, nil), nil) {
+			return
+		}
 
+		text := extractText(execCtx.Message)
+		result := e.processRequest(ctx, text)
+
+		event := a2a.NewArtifactEvent(execCtx, a2a.NewTextPart(result))
+		if !yield(event, nil) {
+			return
+		}
+		yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateCompleted, nil), nil)
+	}
+}
+
+func (e *k8sExecutor) Cancel(_ context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+	return func(yield func(a2a.Event, error) bool) {
+		yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateCanceled, nil), nil)
+	}
+}
+
+func (e *k8sExecutor) processRequest(ctx context.Context, text string) string {
 	switch {
 	case containsAny(text, "pod", "pods"):
-		result, err = p.getPodStatus(ctx, extractNamespace(text))
+		r, _ := e.getPodStatus(ctx, extractNamespace(text))
+		return r
 	case containsAny(text, "node", "nodes"):
-		result, err = p.getNodeStatus(ctx)
+		r, _ := e.getNodeStatus(ctx)
+		return r
 	case containsAny(text, "deploy", "deployment"):
-		result, err = p.getDeploymentStatus(ctx, extractNamespace(text))
+		r, _ := e.getDeploymentStatus(ctx, extractNamespace(text))
+		return r
 	case containsAny(text, "event", "warning"):
-		result, err = p.getEvents(ctx)
+		r, _ := e.getEvents(ctx)
+		return r
 	default:
-		result, err = p.getClusterSummary(ctx)
+		r, _ := e.getClusterSummary(ctx)
+		return r
 	}
-
-	if err != nil {
-		result = fmt.Sprintf("Error: %v", err)
-	}
-
-	responseMessage := protocol.NewMessage(
-		protocol.MessageRoleAgent,
-		[]protocol.Part{protocol.NewTextPart(result)},
-	)
-	return &taskmanager.MessageProcessingResult{
-		Result: &responseMessage,
-	}, nil
 }
 
-func (p *k8sHealthProcessor) getPodStatus(ctx context.Context, ns string) (string, error) {
-	pods, err := p.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+func (e *k8sExecutor) getPodStatus(ctx context.Context, ns string) (string, error) {
+	pods, err := e.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -94,8 +107,8 @@ func (p *k8sHealthProcessor) getPodStatus(ctx context.Context, ns string) (strin
 	return sb.String(), nil
 }
 
-func (p *k8sHealthProcessor) getNodeStatus(ctx context.Context) (string, error) {
-	nodes, err := p.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+func (e *k8sExecutor) getNodeStatus(ctx context.Context) (string, error) {
+	nodes, err := e.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -114,8 +127,8 @@ func (p *k8sHealthProcessor) getNodeStatus(ctx context.Context) (string, error) 
 	return sb.String(), nil
 }
 
-func (p *k8sHealthProcessor) getDeploymentStatus(ctx context.Context, ns string) (string, error) {
-	deployments, err := p.client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
+func (e *k8sExecutor) getDeploymentStatus(ctx context.Context, ns string) (string, error) {
+	deployments, err := e.client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -131,8 +144,8 @@ func (p *k8sHealthProcessor) getDeploymentStatus(ctx context.Context, ns string)
 	return sb.String(), nil
 }
 
-func (p *k8sHealthProcessor) getEvents(ctx context.Context) (string, error) {
-	events, err := p.client.CoreV1().Events("").List(ctx, metav1.ListOptions{
+func (e *k8sExecutor) getEvents(ctx context.Context) (string, error) {
+	events, err := e.client.CoreV1().Events("").List(ctx, metav1.ListOptions{
 		FieldSelector: "type=Warning",
 		Limit:         10,
 	})
@@ -144,33 +157,35 @@ func (p *k8sHealthProcessor) getEvents(ctx context.Context) (string, error) {
 	}
 	var sb strings.Builder
 	sb.WriteString("Warning Events:\n\n")
-	for _, e := range events.Items {
+	for _, ev := range events.Items {
 		sb.WriteString(fmt.Sprintf("  [%s] %s/%s: %s (x%d)\n",
-			e.LastTimestamp.Format("15:04:05"),
-			e.InvolvedObject.Kind, e.InvolvedObject.Name,
-			e.Message, e.Count))
+			ev.LastTimestamp.Format("15:04:05"),
+			ev.InvolvedObject.Kind, ev.InvolvedObject.Name,
+			ev.Message, ev.Count))
 	}
 	return sb.String(), nil
 }
 
-func (p *k8sHealthProcessor) getClusterSummary(ctx context.Context) (string, error) {
-	nodes, _ := p.getNodeStatus(ctx)
-	pods, _ := p.getPodStatus(ctx, "kagent")
-	events, _ := p.getEvents(ctx)
+func (e *k8sExecutor) getClusterSummary(ctx context.Context) (string, error) {
+	nodes, _ := e.getNodeStatus(ctx)
+	pods, _ := e.getPodStatus(ctx, "kagent")
+	events, _ := e.getEvents(ctx)
 	return fmt.Sprintf("=== Cluster Health Summary ===\n\n%s\n%s\n%s", nodes, pods, events), nil
 }
 
-func extractText(msg protocol.Message) string {
+func extractText(msg *a2a.Message) string {
+	if msg == nil {
+		return ""
+	}
 	for _, part := range msg.Parts {
-		if tp, ok := part.(protocol.TextPart); ok {
-			return strings.ToLower(tp.Text)
+		if t := part.Text(); t != "" {
+			return strings.ToLower(t)
 		}
 	}
 	return ""
 }
 
 func extractNamespace(text string) string {
-	// Simple namespace extraction from text
 	for _, word := range []string{"kagent", "kube-system", "flux-system", "agentgateway-system", "default"} {
 		if strings.Contains(text, word) {
 			return word
@@ -188,101 +203,49 @@ func containsAny(text string, words ...string) bool {
 	return false
 }
 
-func stringPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool       { return &b }
-
 func main() {
-	port := ":8080"
+	port := ":9090"
 	if p := os.Getenv("PORT"); p != "" {
 		port = ":" + p
 	}
 
-	processor, err := newK8sHealthProcessor()
+	executor, err := newK8sExecutor()
 	if err != nil {
 		log.Fatalf("Failed to create K8s client: %v", err)
 	}
 
-	providerURL := "https://github.com/kyrylyuk-andriy/ai-reliability-engineering"
-	apiKeyName := "X-API-Key"
-	apiKeyIn := server.SecuritySchemeIn("header")
+	handler := a2asrv.NewHandler(executor)
+	jsonrpcHandler := a2asrv.NewJSONRPCHandler(handler)
 
-	agentCard := server.AgentCard{
+	card := &a2a.AgentCard{
 		Name:        "K8s Health Agent",
 		Description: "A2A-compliant Kubernetes cluster health checker. Inspects pods, nodes, deployments, and warning events.",
-		URL:         fmt.Sprintf("http://localhost%s/", port),
 		Version:     "0.1.0",
-		Provider: &server.AgentProvider{
-			Organization: "AI Reliability Engineering",
-			URL:          &providerURL,
+		Provider: &a2a.AgentProvider{
+			Org: "AI Reliability Engineering",
+			URL: "https://github.com/kyrylyuk-andriy/ai-reliability-engineering",
 		},
-		Capabilities: server.AgentCapabilities{
-			Streaming:         boolPtr(false),
-			PushNotifications: boolPtr(false),
+		DefaultInputModes:  []string{"text/plain"},
+		DefaultOutputModes: []string{"text/plain"},
+		Skills: []a2a.AgentSkill{
+			{ID: "pod-status", Name: "Pod Status", Description: "List pods with status in a namespace"},
+			{ID: "node-status", Name: "Node Status", Description: "List cluster nodes with conditions"},
+			{ID: "deployment-status", Name: "Deployment Status", Description: "List deployments with replica counts"},
+			{ID: "warning-events", Name: "Warning Events", Description: "Get recent warning events"},
+			{ID: "cluster-summary", Name: "Cluster Summary", Description: "Full cluster health summary"},
 		},
-		DefaultInputModes:  []string{protocol.KindText},
-		DefaultOutputModes: []string{protocol.KindText},
-		Skills: []server.AgentSkill{
-			{
-				ID:          "pod-status",
-				Name:        "Pod Status",
-				Description: stringPtr("List pods with their status in a namespace"),
-				InputModes:  []string{protocol.KindText},
-				OutputModes: []string{protocol.KindText},
-			},
-			{
-				ID:          "node-status",
-				Name:        "Node Status",
-				Description: stringPtr("List cluster nodes with conditions"),
-				InputModes:  []string{protocol.KindText},
-				OutputModes: []string{protocol.KindText},
-			},
-			{
-				ID:          "deployment-status",
-				Name:        "Deployment Status",
-				Description: stringPtr("List deployments with replica counts"),
-				InputModes:  []string{protocol.KindText},
-				OutputModes: []string{protocol.KindText},
-			},
-			{
-				ID:          "warning-events",
-				Name:        "Warning Events",
-				Description: stringPtr("Get recent warning events from the cluster"),
-				InputModes:  []string{protocol.KindText},
-				OutputModes: []string{protocol.KindText},
-			},
-			{
-				ID:          "cluster-summary",
-				Name:        "Cluster Summary",
-				Description: stringPtr("Full cluster health summary including nodes, pods, and events"),
-				InputModes:  []string{protocol.KindText},
-				OutputModes: []string{protocol.KindText},
-			},
-		},
-		SecuritySchemes: map[string]server.SecurityScheme{
-			"apiKey": {
-				Type: server.SecuritySchemeTypeAPIKey,
-				Name: &apiKeyName,
-				In:   &apiKeyIn,
-			},
-		},
-		Security: []map[string][]string{
-			{"apiKey": {}},
+		SupportedInterfaces: []*a2a.AgentInterface{
+			a2a.NewAgentInterface(fmt.Sprintf("http://localhost%s", port), a2a.TransportProtocolJSONRPC),
 		},
 	}
 
-	taskManager, err := taskmanager.NewMemoryTaskManager(processor)
-	if err != nil {
-		log.Fatalf("Failed to create task manager: %v", err)
-	}
+	mux := http.NewServeMux()
+	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(card))
+	mux.Handle("/", jsonrpcHandler)
 
-	srv, err := server.NewA2AServer(agentCard, taskManager)
-	if err != nil {
-		log.Fatalf("Failed to create A2A server: %v", err)
-	}
-
-	log.Printf("K8s Health A2A Agent started on %s", port)
-	log.Printf("Agent Card: http://localhost%s/.well-known/agent-card.json", port)
-	if err := srv.Start(port); err != nil {
+	log.Printf("K8s Health A2A Agent started on %s (official a2a-go SDK)", port)
+	log.Printf("Agent Card: http://localhost%s%s", port, a2asrv.WellKnownAgentCardPath)
+	if err := http.ListenAndServe(port, mux); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
