@@ -90,12 +90,22 @@ kubectl get pods -n kagent
 ### 6. Access the UIs
 
 ```bash
-kubectl port-forward -n agentgateway-system deployment/agentgateway-external 8080:80 15000:15000
+# Core UIs
+kubectl port-forward -n agentgateway-system deployment/agentgateway-external 8080:80 15000:15000 &
+kubectl port-forward svc/phoenix-svc -n phoenix 6006:6006 &
+kubectl port-forward svc/qdrant -n qdrant 6333:6333 &
+kubectl port-forward svc/mcp-governance-dashboard -n mcp-governance 3000:3000 &
+kubectl port-forward svc/agentregistry-server -n agentregistry 12121:8080 &
 ```
 
-- **AgentGateway Admin UI:** http://localhost:15000/ui
-- **kagent UI:** http://localhost:8080
-- **kagent MCP API:** http://localhost:8080/api
+| UI | URL | Description |
+|----|-----|-------------|
+| kagent | http://localhost:8080 | AI agent dashboard |
+| AgentGateway Admin | http://localhost:15000/ui | Gateway backends & routes |
+| Phoenix | http://localhost:6006 | AI observability & traces |
+| Qdrant | http://localhost:6333/dashboard | Vector database |
+| MCPG | http://localhost:3000 | MCP security governance |
+| Agentregistry | http://localhost:12121 | AI resource inventory |
 
 ---
 
@@ -494,22 +504,31 @@ Open http://localhost:6006 to see traces for each A2A call — agent discovery, 
 Evaluates the K8s Health Agent against test cases (keyword matching) and reports results to Phoenix:
 
 ```bash
-python evaluate_team.py
+python3 evaluate_team.py
 ```
 
-Test cases:
-- Node status — expects "Ready" and node names
-- Pod status — expects "Running" pods
-- Events — expects "healthy" or "Warning"
-- Deployments — expects coredns in kube-system
-- Cluster summary — expects nodes, pods, events sections
+**Test cases and results:**
 
-Results are scored 0-1 and visible in Phoenix as evaluation spans.
+| Test | Input | Score | Status |
+|------|-------|-------|--------|
+| node_status | Show cluster node status | 1.0 | PASS |
+| pod_status_kagent | Show pods in kagent namespace | 1.0 | PASS |
+| pod_status_default | Show pods in default namespace | 1.0 | PASS |
+| events_check | Show warning events | 0.67 | PASS |
+| deployment_status | Show deployments in kube-system | 1.0 | PASS |
+| cluster_summary | Full cluster health summary | 1.0 | PASS |
+
+**Average score: 0.94** — 6/6 tests passed.
+
+Results are visible in Phoenix under the `a2a-team-evaluator` project as evaluation spans.
 
 ### References
 
 - [MCP Tracing with Phoenix](https://arize.com/docs/phoenix/integrations/python/mcp-tracing)
 - [Pydantic Evals](https://arize.com/docs/phoenix/integrations/python/pydantic/pydantic-evals)
+- [Prompt Enrichment Tutorial](https://agentgateway.dev/docs/kubernetes/latest/tutorials/prompt-enrichment/)
+- [LangChain Tracing Tutorial](https://colab.research.google.com/github/Arize-ai/phoenix/blob/main/tutorials/tracing/langchain_tracing_tutorial.ipynb)
+- [OpenAI Agents Cookbook](https://colab.research.google.com/github/Arize-ai/phoenix/blob/c02f0e7d807129952afa5da430299aec32fafcc9/tutorials/evals/openai_agents_cookbook.ipynb)
 
 ---
 
