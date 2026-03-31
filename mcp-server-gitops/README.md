@@ -20,6 +20,10 @@ git push → GitHub repo → Flux GitRepository → Kustomization → Helm Relea
 | kagent | 0.7.23 | K8s-native AI agent framework with MCP server |
 | Gateway API CRDs | 1.5.0 | Standard K8s Gateway API (experimental channel) |
 | k8s-health-checker | 0.1.0 | Custom KMCP server — K8s health check tools |
+| MCPG | latest | MCP Security Governance — scores MCP infrastructure |
+| agentregistry | 0.3.2 | AI resource inventory and registry |
+| Phoenix | 5.0.20 | AI Observability & Evaluation platform |
+| Qdrant | 1.17.1 | Vector database for AI/ML workloads |
 
 **Two-phase deployment:** CRDs install first (`releases-crds`, `wait: true`), then apps (`releases`, `dependsOn: releases-crds`).
 
@@ -371,6 +375,63 @@ kubectl get governanceevaluations -A         # Governance Evaluations
 
 ---
 
+## Phoenix (AI Observability)
+
+[Phoenix](https://arize.com/docs/phoenix) is an open-source AI observability and evaluation platform. It provides tracing, evaluation, and debugging for LLM applications.
+
+### Deployed via GitOps
+
+Phoenix is deployed by Flux from `releases/phoenix.yaml`:
+- OCI Helm chart: `oci://registry-1.docker.io/arizephoenix/phoenix-helm` (v5.0.20)
+- Includes PostgreSQL for trace storage
+- Exposes ports: 6006 (UI), 4317 (OTLP), 9090 (Prometheus)
+
+### Access the UI
+
+```bash
+kubectl port-forward svc/phoenix-svc -n phoenix 6006:6006
+# Open http://localhost:6006
+```
+
+### References
+
+- [Phoenix Self-Hosting Docs](https://arize.com/docs/phoenix/self-hosting)
+- [Phoenix Helm Chart](https://arize.com/docs/phoenix/self-hosting/deployment-options/kubernetes-helm)
+- [GitHub: Arize-ai/phoenix](https://github.com/Arize-ai/phoenix)
+
+---
+
+## Qdrant (Vector Database)
+
+[Qdrant](https://qdrant.tech/) is a vector database for AI/ML workloads — stores and searches embeddings for similarity search, RAG, and recommendation systems.
+
+### Deployed via GitOps
+
+Qdrant is deployed by Flux from `releases/qdrant.yaml`:
+- Helm chart: `qdrant/qdrant` (v1.17.1) from `https://qdrant.github.io/qdrant-helm`
+- Single replica StatefulSet
+- Exposes ports: 6333 (HTTP/REST + Dashboard), 6334 (gRPC)
+
+### Access the UI
+
+```bash
+kubectl port-forward svc/qdrant -n qdrant 6333:6333
+# Open http://localhost:6333/dashboard
+```
+
+### Access both UIs at once
+
+```bash
+kubectl port-forward svc/phoenix-svc -n phoenix 6006:6006 & kubectl port-forward svc/qdrant -n qdrant 6333:6333
+```
+
+### References
+
+- [Qdrant Helm Chart](https://github.com/qdrant/qdrant-helm)
+- [Qdrant Documentation](https://qdrant.tech/documentation/)
+
+---
+
 ## Research Documents
 
 | Document | Topic |
@@ -422,6 +483,8 @@ mcp-server-gitops/
     ├── kmcp-server.yaml     # MCPServer + Agent + RBAC + A2A config
     ├── mcpg.yaml            # MCP Security Governance (controller + dashboard)
     ├── agentregistry.yaml   # AI Resource Inventory (server + postgres)
+    ├── phoenix.yaml         # Phoenix AI Observability (server + postgres)
+    ├── qdrant.yaml          # Qdrant Vector Database
     └── crds/
         ├── kustomization.yaml
         ├── agentgateway-crds.yaml
