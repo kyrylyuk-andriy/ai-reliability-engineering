@@ -14,3 +14,6 @@ Research documents and screenshots for the AI Reliability Engineering labs.
 | Image | Description |
 |-------|-------------|
 | [mcp-inspector.png](images/mcp-inspector.png) | MCP Inspector connected to k8s-health-checker KMCP server |
+
+---
+*Back to [mcp-server-gitops](../)*

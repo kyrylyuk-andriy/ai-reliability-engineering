@@ -30,3 +30,6 @@ CRDs install first to ensure custom resource types exist before apps reference t
 | `agentgateway-crds.yaml` | AgentGateway CRDs via Helm |
 | `kagent-crds.yaml` | kagent CRDs via Helm |
 | `mcpg-crds.yaml` | MCPGovernancePolicy, GovernanceEvaluation |
+
+---
+*Back to [mcp-server-gitops](../)*

@@ -49,3 +49,6 @@ curl -s -X POST http://localhost:9091/ -H "Content-Type: application/json" \
 - **Language:** Go
 - **SDK:** [github.com/a2aproject/a2a-go/v2](https://github.com/a2aproject/a2a-go)
 - **Pattern:** Agent-to-agent delegation via A2A protocol
+
+---
+*Back to [mcp-server-gitops](../)*

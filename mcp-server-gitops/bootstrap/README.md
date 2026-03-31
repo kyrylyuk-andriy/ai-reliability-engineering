@@ -43,3 +43,6 @@ terraform destroy
 # or
 make down
 ```
+
+---
+*Back to [mcp-server-gitops](../)*

@@ -23,3 +23,6 @@ Or via Makefile:
 ```bash
 make run
 ```
+
+---
+*Back to [mcp-server-gitops](../)*

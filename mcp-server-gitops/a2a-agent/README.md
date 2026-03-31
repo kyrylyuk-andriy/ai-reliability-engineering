@@ -45,3 +45,6 @@ curl -s -X POST http://localhost:9090/ -H "Content-Type: application/json" \
 - **SDK:** [github.com/a2aproject/a2a-go/v2](https://github.com/a2aproject/a2a-go)
 - **K8s client:** client-go (in-cluster or kubeconfig fallback)
 - **Transport:** JSON-RPC over HTTP
+
+---
+*Back to [mcp-server-gitops](../)*

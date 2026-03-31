@@ -55,3 +55,6 @@ Image: `ghcr.io/kyrylyuk-andriy/k8s-health-checker:latest`
 - **K8s client:** client-go
 - **Container:** Multi-stage Dockerfile with distroless base
 - **Transport:** stdio (spawned by kagent sidecar)
+
+---
+*Back to [mcp-server-gitops](../)*

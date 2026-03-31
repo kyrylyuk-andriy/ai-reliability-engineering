@@ -73,3 +73,6 @@ Results visible in Phoenix under the `a2a-team-evaluator` project.
 - [MCP Tracing with Phoenix](https://arize.com/docs/phoenix/integrations/python/mcp-tracing)
 - [Pydantic Evals](https://arize.com/docs/phoenix/integrations/python/pydantic/pydantic-evals)
 - [Phoenix Self-Hosting](https://arize.com/docs/phoenix/self-hosting)
+
+---
+*Back to [mcp-server-gitops](../)*
