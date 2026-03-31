@@ -34,7 +34,7 @@ A2A agent communication, security governance, and AI observability.
 | Experienced | A2A task communication, MCPG deployment | a2a-go SDK, MCP Security Governance |
 | Max | A2A team (custom + kagent), tracing & evaluation | A2A team coordinator, Phoenix, OpenTelemetry |
 
-### Prompt Enrichment & Tracing
+### [Prompt Enrichment & Tracing](mcp-server-gitops/tracing/)
 
 | Tier | What | Key Tech |
 |------|------|----------|
