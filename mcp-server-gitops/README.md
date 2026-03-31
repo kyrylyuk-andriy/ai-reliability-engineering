@@ -432,6 +432,87 @@ kubectl port-forward svc/phoenix-svc -n phoenix 6006:6006 & kubectl port-forward
 
 ---
 
+## Prompt Enrichment
+
+[AgentgatewayPolicy](https://agentgateway.dev/docs/kubernetes/latest/tutorials/prompt-enrichment/) enables injecting system prompts at the gateway layer — every LLM request automatically gets context without modifying application code.
+
+### Deployed via GitOps
+
+`releases/prompt-enrichment.yaml` creates:
+- `AgentgatewayBackend` (Anthropic claude-haiku-4-5)
+- `HTTPRoute` for `/v1` path prefix
+- `AgentgatewayPolicy` prepending an SRE assistant system prompt
+
+### Test
+
+```bash
+kubectl port-forward deployment/agentgateway-proxy -n agentgateway-system 8080:80 &
+
+# Without prompt enrichment context, the response includes SRE expertise
+curl -s http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"How do I debug a CrashLoopBackOff?"}]}' | jq -r '.choices[].message.content'
+```
+
+### References
+
+- [Prompt Enrichment Tutorial](https://agentgateway.dev/docs/kubernetes/latest/tutorials/prompt-enrichment/)
+
+---
+
+## Tracing & Evaluation (Phoenix)
+
+Instruments the A2A agent team with OpenTelemetry and sends traces to Phoenix for observability and evaluation.
+
+### Setup
+
+```bash
+cd tracing
+pip install -r requirements.txt
+```
+
+### Run Tracing
+
+Traces all A2A agent communication and sends spans to Phoenix:
+
+```bash
+# Ensure agents + Phoenix are running
+cd a2a-agent && ./bin/a2a-agent &
+kubectl port-forward svc/kagent-controller -n kagent 8083:8083 &
+cd a2a-team && ./bin/a2a-team &
+kubectl port-forward svc/phoenix-svc -n phoenix 6006:6006 &
+
+# Run tracing
+cd tracing
+python trace_team.py
+```
+
+Open http://localhost:6006 to see traces for each A2A call — agent discovery, message send, response parsing.
+
+### Run Evaluation
+
+Evaluates the K8s Health Agent against test cases (keyword matching) and reports results to Phoenix:
+
+```bash
+python evaluate_team.py
+```
+
+Test cases:
+- Node status — expects "Ready" and node names
+- Pod status — expects "Running" pods
+- Events — expects "healthy" or "Warning"
+- Deployments — expects coredns in kube-system
+- Cluster summary — expects nodes, pods, events sections
+
+Results are scored 0-1 and visible in Phoenix as evaluation spans.
+
+### References
+
+- [MCP Tracing with Phoenix](https://arize.com/docs/phoenix/integrations/python/mcp-tracing)
+- [Pydantic Evals](https://arize.com/docs/phoenix/integrations/python/pydantic/pydantic-evals)
+
+---
+
 ## Research Documents
 
 | Document | Topic |
@@ -476,6 +557,10 @@ mcp-server-gitops/
 ├── a2a-team/                # A2A Team coordinator (Go, custom + kagent)
 │   ├── main.go
 │   └── go.mod / go.sum
+├── tracing/                 # Phoenix tracing & evaluation (Python)
+│   ├── requirements.txt
+│   ├── trace_team.py        # A2A team tracing → Phoenix
+│   └── evaluate_team.py     # Agent evaluation with test cases
 └── releases/                # Flux syncs this directory
     ├── kustomization.yaml
     ├── agentgateway.yaml    # Namespace + HelmRelease + Gateway
@@ -485,6 +570,7 @@ mcp-server-gitops/
     ├── agentregistry.yaml   # AI Resource Inventory (server + postgres)
     ├── phoenix.yaml         # Phoenix AI Observability (server + postgres)
     ├── qdrant.yaml          # Qdrant Vector Database
+    ├── prompt-enrichment.yaml # AgentGateway Prompt Enrichment policy
     └── crds/
         ├── kustomization.yaml
         ├── agentgateway-crds.yaml

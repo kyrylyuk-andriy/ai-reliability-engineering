@@ -9,3 +9,4 @@ resources:
   - agentregistry.yaml
   - phoenix.yaml
   - qdrant.yaml
+  - prompt-enrichment.yaml

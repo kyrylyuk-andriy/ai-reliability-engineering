@@ -80,6 +80,21 @@ resource "kubectl_manifest" "anthropic_secret" {
   YAML
 }
 
+resource "kubectl_manifest" "agentgateway_llm_secret" {
+  depends_on = [kind_cluster.this]
+
+  yaml_body = <<-YAML
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: llm-secret
+      namespace: agentgateway-system
+    type: Opaque
+    stringData:
+      Authorization: ${var.anthropic_api_key}
+  YAML
+}
+
 # ==========================================
 # GitRepository source (syncs from Git repo)
 # ==========================================

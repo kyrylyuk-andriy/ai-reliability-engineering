@@ -1,0 +1,56 @@
+---
+# LLM Backend pointing to Anthropic
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: llm
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      anthropic:
+        model: claude-haiku-4-5-20251001
+  policies:
+    auth:
+      secretRef:
+        name: llm-secret
+---
+# HTTPRoute for the LLM backend
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: llm
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agentgateway-external
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+      backendRefs:
+        - name: llm
+          namespace: agentgateway-system
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+---
+# Prompt Enrichment Policy
+# Automatically prepends a system prompt to every request on the llm route
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: prompt-enrichment
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: llm
+  backend:
+    ai:
+      prompt:
+        prepend:
+          - role: system
+            content: "You are an SRE assistant with deep expertise in Kubernetes, cloud-native systems, and reliability engineering. Always be concise and include practical examples."
