@@ -86,12 +86,6 @@ vim releases/kagent.yaml
 git add . && git commit -m "update kagent config" && git push
 ```
 
-| | abox | mcp-server-gitops |
-|---|---|---|
-| IaC tool | OpenTofu | Terraform |
-| Flux source | OCI artifacts (GitlessOps) | GitRepository (GitOps) |
-| Trigger | `make push` → OCI tag → Flux | `git push` → Flux polls Git |
-
 ---
 
 ## Custom Components
