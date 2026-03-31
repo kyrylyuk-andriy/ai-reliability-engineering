@@ -7,3 +7,5 @@ resources:
   - kmcp-server.yaml
   - mcpg.yaml
   - agentregistry.yaml
+  - phoenix.yaml
+  - qdrant.yaml
