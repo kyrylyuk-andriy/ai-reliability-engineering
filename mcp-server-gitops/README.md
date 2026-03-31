@@ -1,6 +1,6 @@
-# Lab-2: MCP Server GitOps
+# MCP Server GitOps
 
-Deploy an MCP tool server and agent using GitOps with Flux CD syncing from a Git repository.
+AI-native infrastructure platform deployed via GitOps with Flux CD — includes custom MCP/A2A agents, security governance, observability, and prompt enrichment.
 
 Based on [abox](https://github.com/den-vasyliev/abox), adapted to use **Terraform** and **GitRepository** (Git sync) instead of OpenTofu and OCI artifacts.
 
@@ -42,7 +42,7 @@ git push → GitHub repo → Flux GitRepository → Kustomization → Helm Relea
 ### 1. Clone and navigate
 
 ```bash
-git clone https://github.com/andriy-kyrylyuk/ai-reliability-engineering.git
+git clone https://github.com/kyrylyuk-andriy/ai-reliability-engineering.git
 cd ai-reliability-engineering/mcp-server-gitops
 ```
 
@@ -212,8 +212,6 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 
 Build locally with `cd kmcp-server && go build -o bin/k8s-health-checker .`, restart Claude Desktop, and ask "Show me the cluster dashboard".
-
-![MCP Apps Dashboard](docs/images/mcp-dashboard.png)
 
 ### How it works
 
@@ -456,9 +454,9 @@ kubectl port-forward svc/phoenix-svc -n phoenix 6006:6006 & kubectl port-forward
 ### Test
 
 ```bash
-kubectl port-forward deployment/agentgateway-proxy -n agentgateway-system 8080:80 &
+kubectl port-forward deployment/agentgateway-external -n agentgateway-system 8080:80 &
 
-# Without prompt enrichment context, the response includes SRE expertise
+# The response includes SRE expertise from the injected system prompt
 curl -s http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"messages":[{"role":"user","content":"How do I debug a CrashLoopBackOff?"}]}' | jq -r '.choices[].message.content'
@@ -584,7 +582,7 @@ mcp-server-gitops/
     ├── kustomization.yaml
     ├── agentgateway.yaml    # Namespace + HelmRelease + Gateway
     ├── kagent.yaml          # Namespace + HelmRelease + HTTPRoute + ModelConfig
-    ├── kmcp-server.yaml     # MCPServer + Agent + RBAC + A2A config
+    ├── kmcp-server.yaml     # MCPServer + Agent + RBAC
     ├── mcpg.yaml            # MCP Security Governance (controller + dashboard)
     ├── agentregistry.yaml   # AI Resource Inventory (server + postgres)
     ├── phoenix.yaml         # Phoenix AI Observability (server + postgres)
