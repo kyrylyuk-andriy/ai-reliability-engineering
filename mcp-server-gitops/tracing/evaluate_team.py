@@ -24,14 +24,16 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
-PHOENIX_COLLECTOR = os.getenv("PHOENIX_COLLECTOR", f"{PHOENIX_URL}/v1/traces")
+PHOENIX_COLLECTOR = os.getenv("PHOENIX_COLLECTOR", "http://localhost:6006/v1/traces")
+PHOENIX_API_KEY = os.getenv("PHOENIX_API_KEY", "")
 HEALTH_AGENT_URL = os.getenv("HEALTH_AGENT_URL", "http://localhost:9090")
 
 
 def setup_tracing():
     resource = Resource.create({"service.name": "a2a-team-evaluator"})
     provider = TracerProvider(resource=resource)
-    exporter = OTLPSpanExporter(endpoint=PHOENIX_COLLECTOR)
+    headers = {"authorization": f"Bearer {PHOENIX_API_KEY}"} if PHOENIX_API_KEY else {}
+    exporter = OTLPSpanExporter(endpoint=PHOENIX_COLLECTOR, headers=headers)
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
     return trace.get_tracer("a2a-evaluator")

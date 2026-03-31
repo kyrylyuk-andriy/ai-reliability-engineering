@@ -33,7 +33,9 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 # Phoenix endpoint
 PHOENIX_URL = os.getenv("PHOENIX_URL", "http://localhost:6006")
-PHOENIX_COLLECTOR = os.getenv("PHOENIX_COLLECTOR", f"{PHOENIX_URL}/v1/traces")
+# Phoenix OTLP HTTP endpoint (same port as UI, requires auth)
+PHOENIX_COLLECTOR = os.getenv("PHOENIX_COLLECTOR", "http://localhost:6006/v1/traces")
+PHOENIX_API_KEY = os.getenv("PHOENIX_API_KEY", "")
 
 # A2A endpoints
 TEAM_URL = os.getenv("TEAM_URL", "http://localhost:9092")
@@ -45,7 +47,8 @@ def setup_tracing():
     """Configure OpenTelemetry to send traces to Phoenix."""
     resource = Resource.create({"service.name": "a2a-team-tracer"})
     provider = TracerProvider(resource=resource)
-    exporter = OTLPSpanExporter(endpoint=PHOENIX_COLLECTOR)
+    headers = {"authorization": f"Bearer {PHOENIX_API_KEY}"} if PHOENIX_API_KEY else {}
+    exporter = OTLPSpanExporter(endpoint=PHOENIX_COLLECTOR, headers=headers)
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
     return trace.get_tracer("a2a-team")

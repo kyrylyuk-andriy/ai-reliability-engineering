@@ -27,3 +27,5 @@ spec:
   values:
     server:
       port: 6006
+    auth:
+      enableAuth: false
